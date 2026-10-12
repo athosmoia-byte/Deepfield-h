@@ -1,0 +1,1347 @@
+-- ================================================================
+-- DeepField:Linoria — MM2 Admin Panel v1.5
+-- UI: LinoriaLib | Debugging estruturado
+-- Criador: Bak454 | Key System
+-- ================================================================
+
+-- ================================================================
+-- LOGGER GLOBAL
+-- ================================================================
+local LOGS = {}
+
+local function log(level, msg)
+    local t = os.date("%H:%M:%S")
+    local line = ("[DeepField][%s][%s] %s"):format(t, level, tostring(msg))
+    print(line)
+    table.insert(LOGS, line)
+    if #LOGS > 200 then table.remove(LOGS, 1) end
+end
+
+local function safeCall(name, fn, ...)
+    local ok, result = pcall(fn, ...)
+    if not ok then
+        log("ERROR", name .. " falhou: " .. tostring(result))
+    end
+    return ok, result
+end
+
+log("INFO", "Iniciando DeepField v1.5...")
+
+-- ================================================================
+-- KEY SYSTEM
+-- ================================================================
+local Players = game:GetService("Players")
+local lp = Players.LocalPlayer
+
+local VALID_KEY = "IILLIILL"
+
+local function askForKey()
+    local pg = lp:WaitForChild("PlayerGui")
+
+    local savedKey = nil
+    pcall(function()
+        if readfile and isfile and isfile("deepfield_key.txt") then
+            savedKey = readfile("deepfield_key.txt")
+        end
+    end)
+    if savedKey and string.upper(savedKey) == VALID_KEY then
+        log("INFO", "Key salva valida. Pulando prompt.")
+        return true
+    end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "DeepFieldKey"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 200
+    gui.Parent = pg
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 320, 0, 180)
+    frame.Position = UDim2.new(0.5, -160, 0.5, -90)
+    frame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true
+    frame.Parent = gui
+    local c1 = Instance.new("UICorner")
+    c1.CornerRadius = UDim.new(0, 12)
+    c1.Parent = frame
+
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, 0, 0, 40)
+    title.Position = UDim2.new(0, 0, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "DeepField | Key System"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 18
+
+    local sub = Instance.new("TextLabel", frame)
+    sub.Size = UDim2.new(1, -20, 0, 20)
+    sub.Position = UDim2.new(0, 10, 0, 48)
+    sub.BackgroundTransparency = 1
+    sub.Text = "Digite a key para continuar"
+    sub.TextColor3 = Color3.fromRGB(170, 170, 185)
+    sub.Font = Enum.Font.Gotham
+    sub.TextSize = 13
+
+    local box = Instance.new("TextBox", frame)
+    box.Size = UDim2.new(1, -40, 0, 40)
+    box.Position = UDim2.new(0, 20, 0, 78)
+    box.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    box.PlaceholderText = "Cole sua key aqui..."
+    box.Text = ""
+    box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    box.Font = Enum.Font.GothamMedium
+    box.TextSize = 15
+    box.ClearTextOnFocus = false
+    local c2 = Instance.new("UICorner")
+    c2.CornerRadius = UDim.new(0, 8)
+    c2.Parent = box
+
+    local btn = Instance.new("TextButton", frame)
+    btn.Size = UDim2.new(1, -40, 0, 40)
+    btn.Position = UDim2.new(0, 20, 0, 128)
+    btn.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
+    btn.Text = "Verificar"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 15
+    local c3 = Instance.new("UICorner")
+    c3.CornerRadius = UDim.new(0, 8)
+    c3.Parent = btn
+
+    local status = Instance.new("TextLabel", frame)
+    status.Size = UDim2.new(1, -20, 0, 18)
+    status.Position = UDim2.new(0, 10, 1, -22)
+    status.BackgroundTransparency = 1
+    status.Text = ""
+    status.TextColor3 = Color3.fromRGB(255, 80, 80)
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 12
+
+    local validated = false
+
+    btn.Activated:Connect(function()
+        local input = box.Text
+        if string.upper(input) == VALID_KEY then
+            validated = true
+            status.Text = "Key valida! Carregando..."
+            status.TextColor3 = Color3.fromRGB(80, 220, 120)
+            pcall(function()
+                if writefile then writefile("deepfield_key.txt", input) end
+            end)
+            task.wait(0.5)
+            gui:Destroy()
+        else
+            status.Text = "Key invalida. Tente novamente."
+            status.TextColor3 = Color3.fromRGB(255, 80, 80)
+            box.Text = ""
+        end
+    end)
+
+    repeat task.wait(0.1) until validated
+    return true
+end
+
+if not askForKey() then
+    log("WARN", "Key invalida. Script cancelado.")
+    return
+end
+
+log("INFO", "Key OK. Prosseguindo...")
+
+-- ================================================================
+-- MAIN
+-- ================================================================
+local function main()
+
+    log("INFO", "Carregando servicos...")
+
+    -- Serviços
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local RunService        = game:GetService("RunService")
+    local Workspace         = game:GetService("Workspace")
+    local Lighting          = game:GetService("Lighting")
+    local VirtualUser       = game:GetService("VirtualUser")
+    local UserInputService  = game:GetService("UserInputService")
+    local StarterGui        = game:GetService("StarterGui")
+
+    -- LinoriaLib
+    log("INFO", "Carregando LinoriaLib...")
+    local repo = 'https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/'
+    local Library, ThemeManager, SaveManager
+
+    safeCall("LoadLibrary", function()
+        Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
+    end)
+    if not Library then
+        log("ERROR", "Falha critica: LinoriaLib nao carregou. Abortando.")
+        return
+    end
+    safeCall("LoadThemeManager", function()
+        ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+    end)
+    safeCall("LoadSaveManager", function()
+        SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+    end)
+    log("INFO", "LinoriaLib carregada.")
+
+    -- ============================================================
+    -- DETECCAO DE MM2
+    -- ============================================================
+    local function isMM2()
+        if game.PlaceId == 142823291 then return true end
+        local name = string.lower(game.Name or "")
+        if name:find("murder") and (name:find("mystery") or name:find("mm2")) then return true end
+        local hasM, hasS, hasI = false, false, false
+        for _, t in ipairs(game:GetService("Teams"):GetChildren()) do
+            local n = string.lower(t.Name)
+            if n:find("murder") then hasM = true end
+            if n:find("sheriff") then hasS = true end
+            if n:find("innocent") then hasI = true end
+        end
+        if hasM and hasS and hasI then return true end
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            local n = string.lower(obj.Name)
+            if n:find("knife") or n:find("gun") then return true end
+        end
+        return false
+    end
+
+    if not isMM2() then
+        log("WARN", "Este lugar nao e MM2. Script cancelado.")
+        return
+    end
+    log("INFO", "MM2 detectado.")
+
+    -- ============================================================
+    -- ESTADO GLOBAL
+    -- ============================================================
+    local running = true
+
+    local espMurdererOn, espSheriffOn, espGunOn = false, false, false
+    local aimbotOn, silentAimOn, autoThrowOn = false, false, false
+    local autoShootOn, killAuraOn, killAllOn = false, false, false
+    local coinFarmOn, autoGrabGunOn = false, false
+    local antiFlingOn, antiVoidOn, antiAfkOn = false, false, false
+    local noclipOn, infJumpOn = false, false
+    local silentAimGunOn = false
+
+    local throwRange = 60
+    local killAuraRange = 20
+    local silentAimFOV = 300
+    local farmCooldown = 0.1
+    local speedValue, jumpValue = 16, 50
+    local aimbotWallCheck = false
+
+    -- 🔥 Innocent/Unknown NAO tem prioridade = aimbot nao ativa
+    local AIMBOT_PRIORITY = {
+        Murderer = { "Innocent", "Sheriff" },
+        Sheriff  = { "Murderer", "Innocent" },
+    }
+
+    local esp = {}
+    local camera = Workspace.CurrentCamera
+    local roleCache = {}
+    local roleCacheTime = 0
+
+    -- ============================================================
+    -- DETECCAO DE ROLES
+    -- ============================================================
+    local ROLE_COLORS = {
+        Murderer = Color3.fromRGB(255, 60, 60),
+        Sheriff  = Color3.fromRGB(70, 130, 255),
+        Innocent = Color3.fromRGB(80, 220, 120),
+        Unknown  = Color3.fromRGB(160, 160, 170),
+    }
+
+    local function roleFromTool(player)
+        local function scan(container)
+            if not container then return nil end
+            for _, t in ipairs(container:GetChildren()) do
+                if t:IsA("Tool") then
+                    local n = string.lower(t.Name):gsub("%s+", "")
+                    if n:find("knife") or n:find("faca") then return "Murderer" end
+                    if n:find("gun") or n:find("pistol") or n:find("revolver") then return "Sheriff" end
+                end
+            end
+            return nil
+        end
+        return scan(player.Character) or scan(player:FindFirstChildOfClass("Backpack"))
+    end
+
+    local function guessRoleRaw(player)
+        local ok, result = pcall(function()
+            local team = player.Team
+            if team then
+                local tn = team.Name
+                if ROLE_COLORS[tn] then return tn end
+                local ltn = string.lower(tn)
+                if ltn:find("murder") then return "Murderer" end
+                if ltn:find("sheriff") then return "Sheriff" end
+                if ltn:find("innocent") then return "Innocent" end
+            end
+            local attr = player:GetAttribute("Role")
+            if attr and ROLE_COLORS[attr] then return attr end
+            for _, child in ipairs(player:GetChildren()) do
+                if child:IsA("StringValue") and ROLE_COLORS[child.Value] then return child.Value end
+            end
+            return roleFromTool(player) or "Unknown"
+        end)
+        if not ok then
+            log("WARN", "guessRoleRaw falhou para " .. player.Name .. ": " .. tostring(result))
+            return "Unknown"
+        end
+        return result
+    end
+
+    local function guessRole(player)
+        local now = os.clock()
+        if now - roleCacheTime > 0.5 then
+            roleCache = {}
+            roleCacheTime = now
+        end
+        if roleCache[player] then return roleCache[player] end
+        local r = guessRoleRaw(player)
+        roleCache[player] = r
+        return r
+    end
+
+    -- ============================================================
+    -- HELPERS
+    -- ============================================================
+    local function getChar() return lp.Character end
+    local function getHRP()
+        local c = getChar()
+        return c and c:FindFirstChild("HumanoidRootPart")
+    end
+    local function getHum()
+        local c = getChar()
+        return c and c:FindFirstChildOfClass("Humanoid")
+    end
+    local function getEquippedTool()
+        local c = getChar()
+        return c and c:FindFirstChildOfClass("Tool")
+    end
+
+    local function isWeaponEquipped()
+        local t = getEquippedTool()
+        if not t then return false end
+        local n = string.lower(t.Name):gsub("%s+", "")
+        return n:find("gun") or n:find("pistol") or n:find("revolver")
+            or n:find("knife") or n:find("faca")
+    end
+
+    local function aliveHRP(p)
+        local c = p.Character
+        if not c then return nil end
+        local h = c:FindFirstChild("HumanoidRootPart")
+        local hum = c:FindFirstChildOfClass("Humanoid")
+        if h and hum and hum.Health > 0 then return h end
+        return nil
+    end
+
+    local function findTool(keyword)
+        local containers = {
+            getChar(),
+            lp:FindFirstChildOfClass("Backpack"),
+            lp:FindFirstChild("StarterGear"),
+        }
+        for _, c in ipairs(containers) do
+            if c then
+                for _, t in ipairs(c:GetChildren()) do
+                    if t:IsA("Tool") and string.find(string.lower(t.Name), keyword) then
+                        return t
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function fireToolAt(tool, targetHRP)
+        if not (tool and targetHRP) then return false end
+        local targetChar = targetHRP.Parent
+        local hum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+        if not hum then return false end
+
+        local myRoot = getHRP()
+        if myRoot then
+            local targetHead = targetChar:FindFirstChild("Head")
+            local aimPos = targetHead and targetHead.Position or targetHRP.Position
+            myRoot.CFrame = CFrame.lookAt(myRoot.Position, Vector3.new(aimPos.X, myRoot.Position.Y, aimPos.Z))
+            if camera then
+                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, aimPos)
+            end
+        end
+
+        local fired = false
+        for _, child in ipairs(tool:GetDescendants()) do
+            if child:IsA("RemoteEvent") then
+                local ok, err = pcall(function() child:FireServer(hum) end)
+                if ok then fired = true else log("WARN", "FireServer falhou: " .. tostring(err)) end
+            end
+        end
+        return fired
+    end
+
+    local function bestTarget(maxDist)
+        local myRoot = getHRP()
+        if not myRoot then return nil end
+        local best, bestDist = nil, maxDist or math.huge
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp and p.Character then
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    local d = (hrp.Position - myRoot.Position).Magnitude
+                    if d < bestDist then best, bestDist = hrp, d end
+                end
+            end
+        end
+        return best
+    end
+
+    -- 🔥 Innocent/Unknown retornam nil
+    local function pickAimbotTarget()
+        local myRole = guessRole(lp)
+        local priorities = AIMBOT_PRIORITY[myRole]
+        if not priorities then return nil end
+
+        local myRoot = getHRP()
+        for _, wanted in ipairs(priorities) do
+            local best, bestD = nil, math.huge
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp and guessRole(p) == wanted then
+                    local h = aliveHRP(p)
+                    if h then
+                        local d = myRoot and (h.Position - myRoot.Position).Magnitude or 0
+                        if d < bestD then best, bestD = h, d end
+                    end
+                end
+            end
+            if best then return best end
+        end
+        return nil
+    end
+
+    local function findMurderer()
+        local myRoot = getHRP()
+        local best, bestDist = nil, math.huge
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp and guessRole(p) == "Murderer" and p.Character then
+                local h = p.Character:FindFirstChild("HumanoidRootPart")
+                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                if h and hum and hum.Health > 0 and myRoot then
+                    local d = (h.Position - myRoot.Position).Magnitude
+                    if d < bestDist then best = h; bestDist = d end
+                end
+            end
+        end
+        return best
+    end
+
+    log("INFO", "Helpers carregados. Criando janela...")
+
+    -- ============================================================
+    -- JANELA
+    -- ============================================================
+    local Window
+    safeCall("CreateWindow", function()
+        Window = Library:CreateWindow({
+            Title = 'DeepField | MM2',
+            Center = true,
+            AutoShow = true,
+            TabPadding = 8,
+            MenuFadeTime = 0.1,
+        })
+    end)
+    if not Window then
+        log("ERROR", "Falha ao criar janela. Abortando.")
+        return
+    end
+    log("INFO", "Janela criada.")
+
+    local Tabs = {
+        Combat = Window:AddTab('Combat'),
+        Visual = Window:AddTab('Visual'),
+        Movement = Window:AddTab('Movement'),
+        Farm = Window:AddTab('Farm'),
+        Protection = Window:AddTab('Protection'),
+        ['UI Settings'] = Window:AddTab('UI Settings'),
+    }
+    log("INFO", "Abas criadas.")
+
+    -- ============================================================
+    -- ABA COMBAT (CONSOLIDADA: 1 Left + 1 Right)
+    -- ============================================================
+    local CombatLeft = Tabs.Combat:AddLeftGroupbox('Aimbot & Silent Aim')
+
+    CombatLeft:AddToggle('Aimbot', {
+        Text = 'Ativar Aimbot',
+        Default = false,
+        Tooltip = 'So funciona com arma equipada',
+        Callback = function(v)
+            aimbotOn = v
+            log("INFO", "Aimbot: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    CombatLeft:AddToggle('AimbotWallCheck', {
+        Text = 'Wall Check',
+        Default = false,
+        Tooltip = 'Nao mira atraves de paredes',
+        Callback = function(v) aimbotWallCheck = v end,
+    })
+
+    CombatLeft:AddToggle('SilentAimGun', {
+        Text = 'Silent Aim Gun (Clique)',
+        Default = false,
+        Tooltip = 'Ao clicar com a arma, mira no Murderer',
+        Callback = function(v)
+            silentAimGunOn = v
+            log("INFO", "Silent Aim Gun: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    CombatLeft:AddToggle('SilentAim', {
+        Text = 'Silent Aim (Knife)',
+        Default = false,
+        Tooltip = 'Gira HRP pro alvo',
+        Callback = function(v) silentAimOn = v end,
+    })
+
+    CombatLeft:AddSlider('SilentFOV', {
+        Text = 'Silent Aim FOV',
+        Default = 300,
+        Min = 50,
+        Max = 500,
+        Rounding = 0,
+        Suffix = ' studs',
+        Callback = function(v) silentAimFOV = v end,
+    })
+
+    CombatLeft:AddSlider('KillAuraRange', {
+        Text = 'Kill Aura Range',
+        Default = 20,
+        Min = 10,
+        Max = 50,
+        Rounding = 0,
+        Suffix = ' studs',
+        Callback = function(v) killAuraRange = v end,
+    })
+
+    CombatLeft:AddToggle('KillAura', {
+        Text = 'Kill Aura',
+        Default = false,
+        Callback = function(v)
+            killAuraOn = v
+            log("INFO", "Kill Aura: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    CombatLeft:AddLabel('Sheriff mira Murderer | Murderer mira Innocent')
+    CombatLeft:AddLabel('Innocent: aimbot nao ativa')
+
+    local CombatRight = Tabs.Combat:AddRightGroupbox('Auto Shoot / Throw / Botoes')
+
+    CombatRight:AddToggle('AutoShoot', {
+        Text = 'Auto Shoot (Sheriff)',
+        Default = false,
+        Callback = function(v)
+            autoShootOn = v
+            log("INFO", "Auto Shoot: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    CombatRight:AddToggle('AutoThrow', {
+        Text = 'Auto Throw Knife',
+        Default = false,
+        Callback = function(v)
+            autoThrowOn = v
+            log("INFO", "Auto Throw: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    CombatRight:AddSlider('ThrowRange', {
+        Text = 'Throw Range',
+        Default = 60,
+        Min = 10,
+        Max = 150,
+        Rounding = 0,
+        Suffix = ' studs',
+        Callback = function(v) throwRange = v end,
+    })
+
+    CombatRight:AddButton({
+        Text = 'SHOOT MURDERER',
+        Func = function()
+            local gun = findTool("gun") or findTool("pistol") or findTool("revolver")
+            if not gun then Library:Notify("Arma nao encontrada!", 3); return end
+            local target = findMurderer()
+            if target then
+                local ok = fireToolAt(gun, target)
+                Library:Notify(ok and "Tiro disparado!" or "Falha ao disparar", 3)
+                log("INFO", "Shoot manual: " .. (ok and "OK" or "FALHOU"))
+            else
+                Library:Notify("Murderer nao encontrado", 3)
+            end
+        end,
+    })
+
+    CombatRight:AddButton({
+        Text = 'THROW KNIFE',
+        Func = function()
+            local knife = findTool("knife") or findTool("faca")
+            if not knife then Library:Notify("Faca nao encontrada!", 3); return end
+            local target = bestTarget(throwRange)
+            if target then
+                local ok = fireToolAt(knife, target)
+                Library:Notify(ok and "Faca lancada!" or "Falha ao lancar", 3)
+                log("INFO", "Throw manual: " .. (ok and "OK" or "FALHOU"))
+            else
+                Library:Notify("Nenhum alvo no range", 3)
+            end
+        end,
+    })
+
+    -- Detectores de input
+    local isShooting = false
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+           or input.UserInputType == Enum.UserInputType.Touch then
+            isShooting = true
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+           or input.UserInputType == Enum.UserInputType.Touch then
+            isShooting = false
+        end
+    end)
+
+    -- Aimbot loop
+    RunService.RenderStepped:Connect(function()
+        if not running or not aimbotOn then return end
+        if not isWeaponEquipped() then return end
+        if not isShooting then return end
+
+        if not camera then camera = Workspace.CurrentCamera end
+        if not camera then return end
+
+        local target = pickAimbotTarget()
+        if not target then return end
+
+        if aimbotWallCheck then
+            local ray = Ray.new(camera.CFrame.Position, (target.Position - camera.CFrame.Position).Unit * (target.Position - camera.CFrame.Position).Magnitude)
+            local hit = Workspace:FindPartOnRay(ray, lp.Character)
+            if hit and not hit:IsDescendantOf(target.Parent) then return end
+        end
+
+        local targetHead = target.Parent and target.Parent:FindFirstChild("Head")
+        local aimPos = targetHead and targetHead.Position or target.Position
+        camera.CFrame = CFrame.new(camera.CFrame.Position, aimPos)
+    end)
+
+    -- Silent Aim Knife loop
+    RunService.RenderStepped:Connect(function()
+        if not running or not silentAimOn then return end
+        if not camera then camera = Workspace.CurrentCamera end
+        if not camera then return end
+        local target = bestTarget(silentAimFOV)
+        if not target then return end
+        local targetHead = target.Parent and target.Parent:FindFirstChild("Head")
+        if not targetHead then return end
+        local myRoot = getHRP()
+        if myRoot then
+            myRoot.CFrame = CFrame.new(myRoot.Position, Vector3.new(targetHead.Position.X, myRoot.Position.Y, targetHead.Position.Z))
+        end
+    end)
+
+    -- Silent Aim Gun
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if not silentAimGunOn or not running then return end
+        if not isWeaponEquipped() then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+           or input.UserInputType == Enum.UserInputType.Touch then
+            local murderer = findMurderer()
+            if murderer then
+                local targetHead = murderer.Parent and murderer.Parent:FindFirstChild("Head")
+                local aimPos = targetHead and targetHead.Position or murderer.Position
+                local myRoot = getHRP()
+                if myRoot then
+                    myRoot.CFrame = CFrame.lookAt(myRoot.Position, Vector3.new(aimPos.X, myRoot.Position.Y, aimPos.Z))
+                    if camera then
+                        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, aimPos)
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Auto Shoot loop
+    task.spawn(function()
+        local lastShot = 0
+        while running do
+            task.wait(0.25)
+            local now = os.clock()
+            if autoShootOn and now - lastShot > 1 then
+                local gun = findTool("gun") or findTool("pistol") or findTool("revolver")
+                if gun then
+                    local target = findMurderer()
+                    if target then
+                        lastShot = now
+                        local ok = fireToolAt(gun, target)
+                        if ok then log("INFO", "Auto Shoot disparou.") end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Auto Throw loop
+    task.spawn(function()
+        local lastThrow = 0
+        while running do
+            task.wait(0.25)
+            local now = os.clock()
+            if autoThrowOn and now - lastThrow > 1.5 then
+                local knife = findTool("knife") or findTool("faca")
+                if knife then
+                    local target = bestTarget(throwRange)
+                    if target then
+                        lastThrow = now
+                        local ok = fireToolAt(knife, target)
+                        if ok then log("INFO", "Auto Throw lancou.") end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Kill Aura loop
+    task.spawn(function()
+        local lastAura = 0
+        while running do
+            task.wait(0.3)
+            local now = os.clock()
+            if killAuraOn and now - lastAura > 1 then
+                local knife = findTool("knife") or findTool("faca")
+                if knife then
+                    local myRoot = getHRP()
+                    if myRoot then
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if p ~= lp and p.Character then
+                                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                                if hrp and hum and hum.Health > 0 then
+                                    local d = (hrp.Position - myRoot.Position).Magnitude
+                                    if d < killAuraRange then
+                                        lastAura = now
+                                        fireToolAt(knife, hrp)
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- ============================================================
+    -- VISUAL
+    -- ============================================================
+    local VisualLeft = Tabs.Visual:AddLeftGroupbox('ESP Jogadores')
+
+    local function removeESP(p)
+        local e = esp[p]
+        if e then
+            pcall(function()
+                if e.highlight then e.highlight:Destroy() end
+                if e.billboard then e.billboard:Destroy() end
+            end)
+            esp[p] = nil
+        end
+    end
+
+    local function buildESP(hrp, color, text)
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = hrp
+        highlight.FillColor = color
+        highlight.OutlineColor = color
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = hrp
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Adornee = hrp
+        billboard.AlwaysOnTop = true
+        billboard.Size = UDim2.fromOffset(160, 30)
+        billboard.StudsOffset = Vector3.new(0, 4, 0)
+        billboard.Parent = hrp
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.fromScale(1, 1)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = color
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 14
+        label.TextStrokeTransparency = 0.4
+        label.Parent = billboard
+
+        return { hrp = hrp, highlight = highlight, billboard = billboard, label = label }
+    end
+
+    local function updateESP()
+        if not running then return end
+        local myRoot = getHRP()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp then
+                local char = p.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local role = guessRole(p)
+                local shouldShow = (role == "Murderer" and espMurdererOn)
+                    or (role == "Sheriff" and espSheriffOn)
+                if shouldShow and hrp and hum and hum.Health > 0 then
+                    local e = esp[p]
+                    if not e or e.hrp ~= hrp or not hrp:IsDescendantOf(Workspace) then
+                        removeESP(p)
+                        local color = ROLE_COLORS[role] or Color3.new(1,1,1)
+                        local dist = myRoot and (myRoot.Position - hrp.Position).Magnitude or 0
+                        e = buildESP(hrp, color, string.format("%s (%s) [%dm]", p.DisplayName, role, math.floor(dist)))
+                        esp[p] = e
+                    else
+                        local dist = myRoot and (myRoot.Position - hrp.Position).Magnitude or 0
+                        e.label.Text = string.format("%s (%s) [%dm]", p.DisplayName, role, math.floor(dist))
+                    end
+                else
+                    removeESP(p)
+                end
+            end
+        end
+    end
+
+    RunService.Heartbeat:Connect(function(dt)
+        if not running then return end
+        local acc = (getgenv and getgenv()._dfAcc) or 0
+        acc = acc + dt
+        if acc >= 0.1 then acc = 0; updateESP() end
+        if getgenv then getgenv()._dfAcc = acc end
+    end)
+
+    Players.PlayerRemoving:Connect(removeESP)
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        p.CharacterRemoving:Connect(function() roleCache[p] = nil end)
+    end
+    Players.PlayerAdded:Connect(function(p)
+        p.CharacterRemoving:Connect(function() roleCache[p] = nil end)
+    end)
+
+    VisualLeft:AddToggle('ESPMurderer', {
+        Text = 'ESP Murderer',
+        Default = false,
+        Tooltip = 'Vermelho',
+        Callback = function(v)
+            espMurdererOn = v
+            log("INFO", "ESP Murderer: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    VisualLeft:AddToggle('ESPSheriff', {
+        Text = 'ESP Sheriff',
+        Default = false,
+        Tooltip = 'Azul',
+        Callback = function(v)
+            espSheriffOn = v
+            log("INFO", "ESP Sheriff: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    VisualLeft:AddToggle('ESPGun', {
+        Text = 'ESP Dropped Gun',
+        Default = false,
+        Tooltip = 'Amarelo',
+        Callback = function(v)
+            espGunOn = v
+            log("INFO", "Gun ESP: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    local VisualRight = Tabs.Visual:AddRightGroupbox('Gun ESP + Iluminacao')
+
+    local gunEspObjs = {}
+
+    local function clearGunESP(tool)
+        local obj = gunEspObjs[tool]
+        if obj then
+            pcall(function()
+                if obj.highlight then obj.highlight:Destroy() end
+                if obj.billboard then obj.billboard:Destroy() end
+            end)
+            gunEspObjs[tool] = nil
+        end
+    end
+
+    local function clearAllGunESP()
+        for tool in pairs(gunEspObjs) do clearGunESP(tool) end
+    end
+
+    local function isDroppedGun(obj)
+        if not obj:IsA("Tool") then return false end
+        if not obj:IsDescendantOf(Workspace) then return false end
+        local parent = obj.Parent
+        if parent and parent:IsA("Model") then
+            if parent:FindFirstChildOfClass("Humanoid") then return false end
+        end
+        local n = string.lower(obj.Name)
+        return n:find("gun") or n:find("pistol") or n:find("revolver")
+    end
+
+    task.spawn(function()
+        while running do
+            task.wait(0.3)
+            if not espGunOn then
+                clearAllGunESP()
+                task.wait(0.5)
+            else
+                safeCall("GunESP", function()
+                    local currentGuns = {}
+                    for _, obj in ipairs(Workspace:GetChildren()) do
+                        if isDroppedGun(obj) then currentGuns[obj] = true end
+                    end
+                    for _, folderName in ipairs({"GunDrop", "DroppedGuns", "Guns", "Weapons", "Drops"}) do
+                        local folder = Workspace:FindFirstChild(folderName)
+                        if folder then
+                            for _, obj in ipairs(folder:GetChildren()) do
+                                if isDroppedGun(obj) then currentGuns[obj] = true end
+                            end
+                        end
+                    end
+                    for tool in pairs(gunEspObjs) do
+                        if not currentGuns[tool] or not tool.Parent then
+                            clearGunESP(tool)
+                        end
+                    end
+                    for tool in pairs(currentGuns) do
+                        if not gunEspObjs[tool] then
+                            local handle = tool:FindFirstChild("Handle")
+                            if handle and handle:IsA("BasePart") then
+                                local hl = Instance.new("Highlight")
+                                hl.Adornee = handle
+                                hl.FillColor = Color3.fromRGB(255, 255, 0)
+                                hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                                hl.FillTransparency = 0.5
+                                hl.OutlineTransparency = 0.3
+                                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                hl.Parent = handle
+
+                                local bb = Instance.new("BillboardGui")
+                                bb.Adornee = handle
+                                bb.AlwaysOnTop = true
+                                bb.Size = UDim2.fromOffset(120, 30)
+                                bb.StudsOffset = Vector3.new(0, 2, 0)
+                                bb.Parent = handle
+
+                                local label = Instance.new("TextLabel")
+                                label.Size = UDim2.fromScale(1, 1)
+                                label.BackgroundTransparency = 1
+                                label.Text = "GUN DROP"
+                                label.TextColor3 = Color3.fromRGB(255, 255, 0)
+                                label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                                label.TextStrokeTransparency = 0
+                                label.Font = Enum.Font.GothamBold
+                                label.TextSize = 14
+                                label.Parent = bb
+
+                                gunEspObjs[tool] = { highlight = hl, billboard = bb }
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+
+    VisualRight:AddToggle('Fullbright', {
+        Text = 'Fullbright',
+        Default = false,
+        Callback = function(v)
+            log("INFO", "Fullbright: " .. (v and "ON" or "OFF"))
+            if v then
+                Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+                Lighting.Brightness = 2
+                Lighting.FogEnd = 100000
+                Lighting.GlobalShadows = false
+            else
+                Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+                Lighting.Brightness = 1
+                Lighting.FogEnd = 100000
+                Lighting.GlobalShadows = true
+            end
+        end,
+    })
+
+    -- ============================================================
+    -- MOVEMENT
+    -- ============================================================
+    local MoveLeft = Tabs.Movement:AddLeftGroupbox('Movimentacao')
+
+    MoveLeft:AddSlider('Walkspeed', {
+        Text = 'Walkspeed',
+        Default = 16,
+        Min = 16,
+        Max = 250,
+        Rounding = 0,
+        Callback = function(v)
+            speedValue = v
+            local hum = getHum()
+            if hum then hum.WalkSpeed = v end
+        end,
+    })
+
+    MoveLeft:AddSlider('JumpPower', {
+        Text = 'Jump Power',
+        Default = 50,
+        Min = 50,
+        Max = 500,
+        Rounding = 0,
+        Callback = function(v)
+            jumpValue = v
+            local hum = getHum()
+            if hum then hum.JumpPower = v end
+        end,
+    })
+
+    MoveLeft:AddToggle('InfiniteJump', {
+        Text = 'Infinite Jump',
+        Default = false,
+        Callback = function(v) infJumpOn = v; log("INFO", "InfJump: " .. (v and "ON" or "OFF")) end,
+    })
+
+    MoveLeft:AddToggle('Noclip', {
+        Text = 'Noclip',
+        Default = false,
+        Callback = function(v) noclipOn = v; log("INFO", "Noclip: " .. (v and "ON" or "OFF")) end,
+    })
+
+    UserInputService.JumpRequest:Connect(function()
+        if not running or not infJumpOn then return end
+        local hum = getHum()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end)
+
+    RunService.Stepped:Connect(function()
+        if not running or not noclipOn then return end
+        local char = getChar()
+        if not char then return end
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
+        end
+    end)
+
+    local MoveRight = Tabs.Movement:AddRightGroupbox('Teleportes')
+
+    MoveRight:AddButton({
+        Text = 'TP para Murderer',
+        Func = function()
+            local target = findMurderer()
+            local hrp = getHRP()
+            if hrp and target then
+                hrp.CFrame = target.CFrame + Vector3.new(0, 3, 0)
+                log("INFO", "TP Murderer executado.")
+            else
+                log("WARN", "TP Murderer: alvo nao encontrado.")
+            end
+        end,
+    })
+
+    MoveRight:AddButton({
+        Text = 'TP para Sheriff',
+        Func = function()
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= lp and guessRole(p) == "Sheriff" and p.Character then
+                    local hrp = getHRP()
+                    local target = p.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp and target then hrp.CFrame = target.CFrame + Vector3.new(0, 3, 0) end
+                    log("INFO", "TP Sheriff executado.")
+                    break
+                end
+            end
+        end,
+    })
+
+    -- ============================================================
+    -- FARM
+    -- ============================================================
+    local FarmLeft = Tabs.Farm:AddLeftGroupbox('Auto Farm')
+
+    FarmLeft:AddSlider('FarmCooldown', {
+        Text = 'Cooldown',
+        Default = 0.1,
+        Min = 0.05,
+        Max = 1,
+        Rounding = 2,
+        Suffix = 's',
+        Callback = function(v) farmCooldown = v end,
+    })
+
+    FarmLeft:AddToggle('CoinFarm', {
+        Text = 'Auto Farm Coins',
+        Default = false,
+        Callback = function(v)
+            coinFarmOn = v
+            log("INFO", "Auto Farm: " .. (v and "ON" or "OFF"))
+            if v then
+                task.spawn(function()
+                    while running and coinFarmOn do
+                        task.wait(farmCooldown)
+                        safeCall("CoinFarm", function()
+                            local myRoot = getHRP()
+                            if myRoot then
+                                local container = Workspace:FindFirstChild("Normal")
+                                if container then container = container:FindFirstChild("CoinContainer") end
+                                if not container then container = Workspace end
+                                local best, bestD = nil, math.huge
+                                for _, obj in ipairs(container:GetDescendants()) do
+                                    if obj:IsA("BasePart") or obj:IsA("MeshPart") then
+                                        local n = string.lower(obj.Name)
+                                        if n:find("coin") or n:find("money") or n == "cash" then
+                                            local d = (obj.Position - myRoot.Position).Magnitude
+                                            if d < bestD then best, bestD = obj, d end
+                                        end
+                                    end
+                                end
+                                if best then myRoot.CFrame = CFrame.new(best.Position + Vector3.new(0, 2, 0)) end
+                            end
+                        end)
+                    end
+                end)
+            end
+        end,
+    })
+
+    local FarmRight = Tabs.Farm:AddRightGroupbox('Auto Grab Gun')
+
+    FarmRight:AddToggle('AutoGrabGun', {
+        Text = 'Auto Grab Gun',
+        Default = false,
+        Callback = function(v)
+            autoGrabGunOn = v
+            log("INFO", "Auto Grab Gun: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    task.spawn(function()
+        while running do
+            task.wait(0.5)
+            if autoGrabGunOn then
+                safeCall("AutoGrabGun", function()
+                    local myRoot = getHRP()
+                    if myRoot then
+                        for _, obj in ipairs(Workspace:GetChildren()) do
+                            if obj:IsA("Tool") and (obj.Name:lower():find("gun") or obj.Name:lower():find("pistol")) then
+                                myRoot.CFrame = CFrame.new(obj.Position + Vector3.new(0, 3, 0))
+                                break
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- ============================================================
+    -- PROTECTION
+    -- ============================================================
+    local ProtectLeft = Tabs.Protection:AddLeftGroupbox('Protecoes')
+
+    local antiFlingConn
+    ProtectLeft:AddToggle('AntiFling', {
+        Text = 'Anti-Fling',
+        Default = false,
+        Callback = function(v)
+            log("INFO", "Anti-Fling: " .. (v and "ON" or "OFF"))
+            if v then
+                antiFlingConn = RunService.Stepped:Connect(function()
+                    safeCall("AntiFling", function()
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if p ~= lp and p.Character then
+                                for _, part in ipairs(p.Character:GetDescendants()) do
+                                    if part:IsA("BasePart") and part.CanCollide then
+                                        part.CanCollide = false
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end)
+            else
+                if antiFlingConn then antiFlingConn:Disconnect(); antiFlingConn = nil end
+            end
+        end,
+    })
+
+    local antiVoidConn
+    ProtectLeft:AddToggle('AntiVoid', {
+        Text = 'Anti-Void',
+        Default = false,
+        Callback = function(v)
+            log("INFO", "Anti-Void: " .. (v and "ON" or "OFF"))
+            if v then
+                antiVoidConn = RunService.Stepped:Connect(function()
+                    local hrp = getHRP()
+                    if hrp and hrp.Position.Y < -100 then hrp.CFrame = CFrame.new(0, 50, 0) end
+                end)
+            else
+                if antiVoidConn then antiVoidConn:Disconnect(); antiVoidConn = nil end
+            end
+        end,
+    })
+
+    local antiAfkConn
+    ProtectLeft:AddToggle('AntiAFK', {
+        Text = 'Anti-AFK',
+        Default = false,
+        Callback = function(v)
+            log("INFO", "Anti-AFK: " .. (v and "ON" or "OFF"))
+            if v then
+                antiAfkConn = lp.Idled:Connect(function()
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new())
+                end)
+            else
+                if antiAfkConn then antiAfkConn:Disconnect(); antiAfkConn = nil end
+            end
+        end,
+    })
+
+    local ProtectRight = Tabs.Protection:AddRightGroupbox('Kill All')
+
+    ProtectRight:AddToggle('KillAll', {
+        Text = 'Kill All Players',
+        Default = false,
+        Tooltip = 'Teleporta para todos os players vivos',
+        Callback = function(v)
+            killAllOn = v
+            log("INFO", "Kill All: " .. (v and "ON" or "OFF"))
+        end,
+    })
+
+    task.spawn(function()
+        while running do
+            task.wait(1)
+            if killAllOn then
+                safeCall("KillAll", function()
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= lp and p:GetAttribute("Alive") == true and p.Character then
+                            local hrp = getHRP()
+                            local target = p.Character:FindFirstChild("HumanoidRootPart")
+                            if hrp and target then
+                                hrp.CFrame = target.CFrame + Vector3.new(0, 3, 0)
+                            end
+                            task.wait(0.5)
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- ============================================================
+    -- UI SETTINGS
+    -- ============================================================
+    local MenuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
+
+    MenuGroup:AddButton('Unload', function()
+        log("INFO", "Unload solicitado pelo usuario.")
+        running = false
+        for p in pairs(esp) do removeESP(p) end
+        clearAllGunESP()
+        if antiFlingConn then antiFlingConn:Disconnect() end
+        if antiVoidConn then antiVoidConn:Disconnect() end
+        if antiAfkConn then antiAfkConn:Disconnect() end
+        Library:Unload()
+    end)
+
+    safeCall("MenuKeybindPicker", function()
+        MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', {
+            Default = 'End',
+            NoUI = true,
+            Text = 'Menu keybind',
+        })
+    end)
+
+    -- 🔥 FIX v1.5: Options pode nao estar populado em algumas versoes do Linoria
+    safeCall("ToggleKeybind", function()
+        if Options and Options.MenuKeybind then
+            Library.ToggleKeybind = Options.MenuKeybind
+        else
+            log("WARN", "Options.MenuKeybind nao disponivel. Keybind ignorado.")
+        end
+    end)
+
+    MenuGroup:AddButton('Ver Logs no Console', function()
+        print("========== DEEPFIELD LOGS ==========")
+        for _, l in ipairs(LOGS) do print(l) end
+        print("=====================================")
+        Library:Notify("Logs impressos no F9!", 4)
+    end)
+
+    safeCall("ThemeManagerSetup", function()
+        ThemeManager:SetLibrary(Library)
+        SaveManager:SetLibrary(Library)
+        SaveManager:IgnoreThemeSettings()
+        SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+        ThemeManager:SetFolder('DeepField-Linoria')
+        SaveManager:SetFolder('DeepField-Linoria/configs')
+        SaveManager:BuildConfigSection(Tabs['UI Settings'])
+        ThemeManager:ApplyToTab(Tabs['UI Settings'])
+        SaveManager:LoadAutoloadConfig()
+    end)
+
+    -- ============================================================
+    -- NOTIFICACOES
+    -- ============================================================
+    local function sendNotification(title, text, duration)
+        duration = duration or 8
+        pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = title,
+                Text = text,
+                Duration = duration,
+                Icon = "rbxassetid://4483362458",
+            })
+        end)
+        Library:Notify(title .. ": " .. text, duration)
+    end
+
+    task.wait(1)
+    sendNotification("DeepField:Linoria v1.5", "Beta — espere por bugs", 8)
+    task.wait(1)
+    sendNotification("Criador: Bak454", "Reporte bugs se encontrar", 8)
+    task.wait(1)
+    sendNotification("Debug ativo", "Use 'Ver Logs' no menu para ver logs", 8)
+
+    log("INFO", "=== DeepField v1.5 carregado com sucesso ===")
+    log("INFO", "Total de logs disponiveis: " .. #LOGS)
+end
+
+-- ================================================================
+-- EXECUTA COM ERROR BOUNDARY
+-- ================================================================
+local ok, err = xpcall(main, function(e)
+    warn("[DeepField] ERRO FATAL: " .. tostring(e))
+    warn("[DeepField] Traceback: " .. debug.traceback())
+end)
+
+if not ok then
+    warn("[DeepField] Script abortado por erro fatal. Verifique o console (F9).")
+end
