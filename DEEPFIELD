@@ -1,5 +1,5 @@
 -- ================================================================
--- DeepField:Linoria — MM2 Admin Panel v6
+-- DeepField:Linoria — MM2 Admin Panel v6.1
 -- UI: LinoriaLib | Mobile-Safe Aimbot | Debugging estruturado
 -- Criador: Bak454 | Key System
 -- ================================================================
@@ -25,7 +25,7 @@ local function safeCall(name, fn, ...)
     return ok, result
 end
 
-log("INFO", "Iniciando DeepField v6...")
+log("INFO", "Iniciando DeepField v6.1...")
 
 -- ================================================================
 -- KEY SYSTEM
@@ -224,16 +224,13 @@ local function main()
     -- ============================================================
     local running = true
 
-    -- ESP
     local espMurdererOn, espSheriffOn, espGunOn = false, false, false
     local espBoxOn, espTracerOn = false, false
 
-    -- Combat
     local aimbotOn, silentAimOn, autoThrowOn = false, false, false
     local autoShootOn, killAuraOn, killAllOn = false, false, false
     local silentAimGunOn = false
 
-    -- Aimbot v6 (novos)
     local aimbotFOV = 150
     local aimbotSmooth = 0.15
     local aimbotPrediction = 0.15
@@ -241,11 +238,9 @@ local function main()
     local isAiming = false
     local isShooting = false
 
-    -- Hitbox
     local hitboxOn = false
     local hitboxSize = 5
 
-    -- Farm/Movement/Protection
     local coinFarmOn, autoGrabGunOn = false, false
     local antiFlingOn, antiVoidOn, antiAfkOn = false, false, false
     local noclipOn, infJumpOn = false, false
@@ -426,14 +421,12 @@ local function main()
         return best
     end
 
-    -- Predição de movimento do alvo
     local function predictPosition(part)
         if aimbotPrediction <= 0 then return part.Position end
         local vel = part.AssemblyLinearVelocity or part.Velocity
         return part.Position + (vel * aimbotPrediction)
     end
 
-    -- Seleção de alvo (mais próximo da mira dentro do FOV)
     local function pickAimbotTarget()
         local myRole = guessRole(lp)
         local priorities = AIMBOT_PRIORITY[myRole]
@@ -525,7 +518,43 @@ local function main()
         end
     end)
 
-    -- Detecção de clique/toque normal (pra aimbot PC)
+    -- ============================================================
+    -- BOTÃO FLUTUANTE "MENU" (abre/fecha Linoria no mobile)
+    -- ============================================================
+    local menuButtonGui = Instance.new("ScreenGui")
+    menuButtonGui.Name = "DeepFieldMenuButton"
+    menuButtonGui.ResetOnSpawn = false
+    menuButtonGui.IgnoreGuiInset = true
+    menuButtonGui.DisplayOrder = 51
+    menuButtonGui.Parent = lp:WaitForChild("PlayerGui")
+
+    local menuButton = Instance.new("TextButton")
+    menuButton.Size = UDim2.new(0, 60, 0, 60)
+    menuButton.Position = UDim2.new(1, -75, 1, -140)
+    menuButton.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    menuButton.BackgroundTransparency = 0.15
+    menuButton.Text = "MENU"
+    menuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    menuButton.Font = Enum.Font.GothamBold
+    menuButton.TextSize = 11
+    menuButton.Active = true
+    menuButton.Parent = menuButtonGui
+    Instance.new("UICorner", menuButton).CornerRadius = UDim.new(1, 0)
+
+    menuButton.MouseButton1Click:Connect(function()
+        pcall(function()
+            if Library.Toggle then
+                Library:Toggle()
+            else
+                local menuGui = lp.PlayerGui:FindFirstChild("LinoriaLib")
+                if menuGui and menuGui.Main then
+                    menuGui.Main.Visible = not menuGui.Main.Visible
+                end
+            end
+        end)
+    end)
+
+    -- Detecção de clique/toque
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -673,7 +702,7 @@ local function main()
     local Window
     safeCall("CreateWindow", function()
         Window = Library:CreateWindow({
-            Title = 'DeepField v6 | MM2',
+            Title = 'DeepField v6.1 | MM2',
             Center = true,
             AutoShow = true,
             TabPadding = 8,
@@ -912,9 +941,7 @@ local function main()
         if not running or not aimbotOn then return end
         if not isWeaponEquipped() then return end
 
-        -- Mobile: só ativa enquanto segura o botão AIM
         if IS_MOBILE and not isAiming then return end
-        -- PC: precisa estar atirando
         if not IS_MOBILE and not isShooting then return end
 
         aimAcc = aimAcc + (1 / 60)
@@ -929,7 +956,6 @@ local function main()
         local targetHRP = pickAimbotTarget()
         if not targetHRP then return end
 
-        -- Wall Check (Raycast moderno)
         if aimbotWallCheck then
             local params = RaycastParams.new()
             params.FilterType = Enum.RaycastFilterType.Exclude
@@ -939,7 +965,6 @@ local function main()
             if ray and not ray.Instance:IsDescendantOf(targetHRP.Parent) then return end
         end
 
-        -- Pega posição com predição
         local targetHead = targetHRP.Parent and targetHRP.Parent:FindFirstChild("Head")
         local aimPos = targetHead and targetHead.Position or targetHRP.Position
         if aimbotPrediction > 0 then
@@ -947,7 +972,6 @@ local function main()
             aimPos = predictPosition(part)
         end
 
-        -- 1. Move a câmera com smoothness
         local goal = CFrame.new(camera.CFrame.Position, aimPos)
         if aimbotSmooth >= 0.99 then
             camera.CFrame = goal
@@ -955,7 +979,6 @@ local function main()
             camera.CFrame = camera.CFrame:Lerp(goal, aimbotSmooth)
         end
 
-        -- 2. Mobile: simula toque virtual na tela
         local screenPos, onScreen = camera:WorldToViewportPoint(aimPos)
         if onScreen and IS_MOBILE then
             pcall(function()
@@ -965,7 +988,6 @@ local function main()
             end)
         end
 
-        -- 3. Ativa a arma (fallback)
         local tool = getEquippedTool()
         if tool then
             local now = os.clock()
@@ -1612,6 +1634,7 @@ local function main()
         running = false
         aimButton.Visible = false
         if aimButtonGui then aimButtonGui:Destroy() end
+        if menuButtonGui then menuButtonGui:Destroy() end
         if fovCircle then fovCircle:Remove() end
         for p in pairs(esp) do removeESP(p) end
         clearAllGunESP()
@@ -1633,14 +1656,14 @@ local function main()
         if Options and Options.MenuKeybind then
             Library.ToggleKeybind = Options.MenuKeybind
         else
-            log("WARN", "Options.MenuKeybind nao disponivel. Keybind ignorado.")
+            log("WARN", "Options.MenuKeybind nao disponivel. Use o botao MENU na tela.")
         end
     end)
 
     MenuGroup:AddButton('Ver Logs no Console', function()
-        print("========== DEEPFIELD v6 LOGS ==========")
+        print("========== DEEPFIELD v6.1 LOGS ==========")
         for _, l in ipairs(LOGS) do print(l) end
-        print("=======================================")
+        print("=========================================")
         Library:Notify("Logs impressos no F9!", 4)
     end)
 
@@ -1650,7 +1673,7 @@ local function main()
     local CreditsGroup = Tabs['UI Settings']:AddRightGroupbox('Créditos')
 
     CreditsGroup:AddLabel('━━━━━━━━━━━━━━━━━━━━━━━')
-    CreditsGroup:AddLabel('DeepField v6')
+    CreditsGroup:AddLabel('DeepField v6.1')
     CreditsGroup:AddLabel('Criado por: Bak454')
     CreditsGroup:AddLabel('━━━━━━━━━━━━━━━━━━━━━━━')
 
@@ -1678,7 +1701,7 @@ local function main()
     CreditsGroup:AddButton('📋 Copiar Todos os Links', function()
         local all = "TikTok: https://www.tiktok.com/@bak454_seilaaqui\n"
                  .. "YouTube: https://youtube.com/@bak454_seilaaqui\n"
-                 .. "DeepField v6 - Criado por Bak454"
+                 .. "DeepField v6.1 - Criado por Bak454"
         if setclipboard then setclipboard(all) end
         Library:Notify("Links copiados! 🚀", 6)
     end)
@@ -1712,13 +1735,13 @@ local function main()
     end
 
     task.wait(1)
-    sendNotification("DeepField v6", "Mobile Aim Edition | by Bak454", 8)
+    sendNotification("DeepField v6.1", "Mobile Aim Edition | by Bak454", 8)
     task.wait(1)
     sendNotification("Siga @bak454_seilaaqui", "TikTok e YouTube", 8)
     task.wait(1)
-    sendNotification("Debug ativo", "Use 'Ver Logs' no menu", 8)
+    sendNotification("Botao MENU ativo", "Canto inferior direito abre/fecha", 8)
 
-    log("INFO", "=== DeepField v6 carregado com sucesso ===")
+    log("INFO", "=== DeepField v6.1 carregado com sucesso ===")
     log("INFO", "Criado por Bak454 | @bak454_seilaaqui")
 end
 
