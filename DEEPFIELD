@@ -1,6 +1,6 @@
 -- ================================================================
--- DeepField:Linoria — MM2 Admin Panel v1.5
--- UI: LinoriaLib | Debugging estruturado
+-- DeepField:Linoria — MM2 Admin Panel v6
+-- UI: LinoriaLib | Mobile-Safe Aimbot | Debugging estruturado
 -- Criador: Bak454 | Key System
 -- ================================================================
 
@@ -25,7 +25,7 @@ local function safeCall(name, fn, ...)
     return ok, result
 end
 
-log("INFO", "Iniciando DeepField v1.5...")
+log("INFO", "Iniciando DeepField v6...")
 
 -- ================================================================
 -- KEY SYSTEM
@@ -159,7 +159,6 @@ local function main()
 
     log("INFO", "Carregando servicos...")
 
-    -- Serviços
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local RunService        = game:GetService("RunService")
     local Workspace         = game:GetService("Workspace")
@@ -167,6 +166,10 @@ local function main()
     local VirtualUser       = game:GetService("VirtualUser")
     local UserInputService  = game:GetService("UserInputService")
     local StarterGui        = game:GetService("StarterGui")
+    local VIM               = game:GetService("VirtualInputManager")
+
+    local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+    log("INFO", "Mobile: " .. tostring(IS_MOBILE))
 
     -- LinoriaLib
     log("INFO", "Carregando LinoriaLib...")
@@ -221,13 +224,31 @@ local function main()
     -- ============================================================
     local running = true
 
+    -- ESP
     local espMurdererOn, espSheriffOn, espGunOn = false, false, false
+    local espBoxOn, espTracerOn = false, false
+
+    -- Combat
     local aimbotOn, silentAimOn, autoThrowOn = false, false, false
     local autoShootOn, killAuraOn, killAllOn = false, false, false
+    local silentAimGunOn = false
+
+    -- Aimbot v6 (novos)
+    local aimbotFOV = 150
+    local aimbotSmooth = 0.15
+    local aimbotPrediction = 0.15
+    local aimbotTargetPart = "Head"
+    local isAiming = false
+    local isShooting = false
+
+    -- Hitbox
+    local hitboxOn = false
+    local hitboxSize = 5
+
+    -- Farm/Movement/Protection
     local coinFarmOn, autoGrabGunOn = false, false
     local antiFlingOn, antiVoidOn, antiAfkOn = false, false, false
     local noclipOn, infJumpOn = false, false
-    local silentAimGunOn = false
 
     local throwRange = 60
     local killAuraRange = 20
@@ -236,13 +257,14 @@ local function main()
     local speedValue, jumpValue = 16, 50
     local aimbotWallCheck = false
 
-    -- 🔥 Innocent/Unknown NAO tem prioridade = aimbot nao ativa
     local AIMBOT_PRIORITY = {
         Murderer = { "Innocent", "Sheriff" },
         Sheriff  = { "Murderer", "Innocent" },
     }
 
     local esp = {}
+    local boxESPs = {}
+    local tracerLines = {}
     local camera = Workspace.CurrentCamera
     local roleCache = {}
     local roleCacheTime = 0
@@ -404,27 +426,50 @@ local function main()
         return best
     end
 
-    -- 🔥 Innocent/Unknown retornam nil
+    -- Predição de movimento do alvo
+    local function predictPosition(part)
+        if aimbotPrediction <= 0 then return part.Position end
+        local vel = part.AssemblyLinearVelocity or part.Velocity
+        return part.Position + (vel * aimbotPrediction)
+    end
+
+    -- Seleção de alvo (mais próximo da mira dentro do FOV)
     local function pickAimbotTarget()
         local myRole = guessRole(lp)
         local priorities = AIMBOT_PRIORITY[myRole]
         if not priorities then return nil end
 
-        local myRoot = getHRP()
-        for _, wanted in ipairs(priorities) do
-            local best, bestD = nil, math.huge
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= lp and guessRole(p) == wanted then
-                    local h = aliveHRP(p)
-                    if h then
-                        local d = myRoot and (h.Position - myRoot.Position).Magnitude or 0
-                        if d < bestD then best, bestD = h, d end
+        if not camera then camera = Workspace.CurrentCamera end
+        if not camera then return nil end
+
+        local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+        local best, bestScore = nil, math.huge
+
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= lp then
+                local role = guessRole(p)
+                local isPriority = false
+                for _, wanted in ipairs(priorities) do
+                    if role == wanted then isPriority = true; break end
+                end
+                if isPriority then
+                    local hrp = aliveHRP(p)
+                    if hrp then
+                        local part = hrp.Parent:FindFirstChild(aimbotTargetPart) or hrp
+                        local predPos = predictPosition(part)
+                        local screenPos, onScreen = camera:WorldToViewportPoint(predPos)
+                        if onScreen then
+                            local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                            if dist <= aimbotFOV and dist < bestScore then
+                                bestScore = dist
+                                best = hrp
+                            end
+                        end
                     end
                 end
             end
-            if best then return best end
         end
-        return nil
+        return best
     end
 
     local function findMurderer()
@@ -443,6 +488,183 @@ local function main()
         return best
     end
 
+    -- ============================================================
+    -- BOTÃO FLUTUANTE "AIM" (MOBILE-SAFE)
+    -- ============================================================
+    local aimButtonGui = Instance.new("ScreenGui")
+    aimButtonGui.Name = "DeepFieldAimButton"
+    aimButtonGui.ResetOnSpawn = false
+    aimButtonGui.IgnoreGuiInset = true
+    aimButtonGui.DisplayOrder = 50
+    aimButtonGui.Parent = lp:WaitForChild("PlayerGui")
+
+    local aimButton = Instance.new("TextButton")
+    aimButton.Size = UDim2.new(0, 75, 0, 75)
+    aimButton.Position = UDim2.new(1, -95, 0.5, -37)
+    aimButton.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
+    aimButton.BackgroundTransparency = 0.25
+    aimButton.Text = "AIM"
+    aimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    aimButton.Font = Enum.Font.GothamBold
+    aimButton.TextSize = 16
+    aimButton.Visible = false
+    aimButton.Active = true
+    aimButton.Parent = aimButtonGui
+    Instance.new("UICorner", aimButton).CornerRadius = UDim.new(1, 0)
+
+    aimButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            isAiming = true
+            aimButton.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+        end
+    end)
+    aimButton.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            isAiming = false
+            aimButton.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
+        end
+    end)
+
+    -- Detecção de clique/toque normal (pra aimbot PC)
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+           or input.UserInputType == Enum.UserInputType.Touch then
+            isShooting = true
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+           or input.UserInputType == Enum.UserInputType.Touch then
+            isShooting = false
+        end
+    end)
+
+    -- ============================================================
+    -- FOV CIRCLE (Drawing API)
+    -- ============================================================
+    local fovCircle
+    local function updateFOVCircle()
+        if not aimbotOn then
+            if fovCircle then fovCircle.Visible = false end
+            return
+        end
+        if not fovCircle then
+            fovCircle = Drawing.new("Circle")
+            fovCircle.Thickness = 1.5
+            fovCircle.NumSides = 60
+            fovCircle.Filled = false
+            fovCircle.Transparency = 0.6
+            fovCircle.Color = Color3.fromRGB(70, 130, 255)
+        end
+        if not camera then camera = Workspace.CurrentCamera end
+        if camera then
+            fovCircle.Position = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+        end
+        fovCircle.Radius = aimbotFOV
+        fovCircle.Visible = true
+    end
+
+    -- ============================================================
+    -- BOX ESP + TRACER
+    -- ============================================================
+    local function updateBoxESP(hrp, color)
+        local obj = boxESPs[hrp]
+        if not obj then
+            obj = {}
+            obj.top    = Drawing.new("Line")
+            obj.bottom = Drawing.new("Line")
+            obj.left   = Drawing.new("Line")
+            obj.right  = Drawing.new("Line")
+            for _, l in pairs(obj) do
+                l.Thickness = 1.5
+                l.Transparency = 0.85
+            end
+            boxESPs[hrp] = obj
+        end
+
+        local head = hrp.Parent and hrp.Parent:FindFirstChild("Head")
+        if not head or not camera then
+            for _, l in pairs(obj) do l.Visible = false end
+            return
+        end
+
+        local topPos, topVis = camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+        local botPos, botVis = camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+        if not (topVis and botVis) then
+            for _, l in pairs(obj) do l.Visible = false end
+            return
+        end
+
+        local height = math.abs(botPos.Y - topPos.Y)
+        local width = height * 0.55
+        local x1, x2 = topPos.X - width / 2, topPos.X + width / 2
+        local y1, y2 = topPos.Y, botPos.Y
+
+        obj.top.From    = Vector2.new(x1, y1); obj.top.To    = Vector2.new(x2, y1)
+        obj.bottom.From = Vector2.new(x1, y2); obj.bottom.To = Vector2.new(x2, y2)
+        obj.left.From   = Vector2.new(x1, y1); obj.left.To   = Vector2.new(x1, y2)
+        obj.right.From  = Vector2.new(x2, y1); obj.right.To  = Vector2.new(x2, y2)
+
+        for _, l in pairs(obj) do
+            l.Color = color
+            l.Visible = true
+        end
+    end
+
+    local function updateTracer(hrp, color)
+        local line = tracerLines[hrp]
+        if not line then
+            line = Drawing.new("Line")
+            line.Thickness = 1
+            line.Transparency = 0.7
+            tracerLines[hrp] = line
+        end
+        if not camera then line.Visible = false; return end
+        local screenPos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+        if not onScreen then line.Visible = false; return end
+        line.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+        line.To = Vector2.new(screenPos.X, screenPos.Y)
+        line.Color = color
+        line.Visible = true
+    end
+
+    local function removeESPDrawings(p)
+        pcall(function()
+            if boxESPs[p] then
+                for _, l in pairs(boxESPs[p]) do l:Remove() end
+                boxESPs[p] = nil
+            end
+            if tracerLines[p] then
+                tracerLines[p]:Remove()
+                tracerLines[p] = nil
+            end
+        end)
+    end
+
+    -- ============================================================
+    -- HITBOX EXPANDER
+    -- ============================================================
+    local function applyHitbox(p)
+        if not p.Character then return end
+        local head = p.Character:FindFirstChild("Head")
+        if head then
+            head.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+            head.Transparency = 0.7
+            head.CanCollide = false
+            head.Massless = true
+        end
+    end
+
+    local function resetHitbox(p)
+        if not p.Character then return end
+        local head = p.Character:FindFirstChild("Head")
+        if head then
+            head.Size = Vector3.new(2, 1, 1)
+            head.Transparency = 0
+        end
+    end
+
     log("INFO", "Helpers carregados. Criando janela...")
 
     -- ============================================================
@@ -451,7 +673,7 @@ local function main()
     local Window
     safeCall("CreateWindow", function()
         Window = Library:CreateWindow({
-            Title = 'DeepField | MM2',
+            Title = 'DeepField v6 | MM2',
             Center = true,
             AutoShow = true,
             TabPadding = 8,
@@ -475,18 +697,58 @@ local function main()
     log("INFO", "Abas criadas.")
 
     -- ============================================================
-    -- ABA COMBAT (CONSOLIDADA: 1 Left + 1 Right)
+    -- ABA COMBAT
     -- ============================================================
     local CombatLeft = Tabs.Combat:AddLeftGroupbox('Aimbot & Silent Aim')
 
     CombatLeft:AddToggle('Aimbot', {
         Text = 'Ativar Aimbot',
         Default = false,
-        Tooltip = 'So funciona com arma equipada',
+        Tooltip = IS_MOBILE and 'Mobile: segure o botao AZUL AIM' or 'So funciona com arma equipada',
         Callback = function(v)
             aimbotOn = v
+            updateFOVCircle()
             log("INFO", "Aimbot: " .. (v and "ON" or "OFF"))
         end,
+    })
+
+    CombatLeft:AddSlider('AimbotFOV', {
+        Text = 'Aimbot FOV',
+        Default = 150,
+        Min = 30,
+        Max = 600,
+        Rounding = 0,
+        Suffix = ' px',
+        Callback = function(v)
+            aimbotFOV = v
+            updateFOVCircle()
+        end,
+    })
+
+    CombatLeft:AddSlider('AimbotSmooth', {
+        Text = 'Smoothness',
+        Default = 0.15,
+        Min = 0.01,
+        Max = 1,
+        Rounding = 2,
+        Callback = function(v) aimbotSmooth = v end,
+    })
+
+    CombatLeft:AddSlider('AimbotPrediction', {
+        Text = 'Prediction',
+        Default = 0.15,
+        Min = 0,
+        Max = 0.5,
+        Rounding = 2,
+        Callback = function(v) aimbotPrediction = v end,
+    })
+
+    CombatLeft:AddDropdown('AimbotPart', {
+        Values = { 'Head', 'HumanoidRootPart', 'UpperTorso' },
+        Default = 1,
+        Multi = false,
+        Text = 'Parte do corpo',
+        Callback = function(v) aimbotTargetPart = v end,
     })
 
     CombatLeft:AddToggle('AimbotWallCheck', {
@@ -495,6 +757,9 @@ local function main()
         Tooltip = 'Nao mira atraves de paredes',
         Callback = function(v) aimbotWallCheck = v end,
     })
+
+    CombatLeft:AddLabel('Sheriff mira Murderer | Murderer mira Innocent')
+    CombatLeft:AddLabel('Innocent: aimbot nao ativa')
 
     CombatLeft:AddToggle('SilentAimGun', {
         Text = 'Silent Aim Gun (Clique)',
@@ -542,10 +807,7 @@ local function main()
         end,
     })
 
-    CombatLeft:AddLabel('Sheriff mira Murderer | Murderer mira Innocent')
-    CombatLeft:AddLabel('Innocent: aimbot nao ativa')
-
-    local CombatRight = Tabs.Combat:AddRightGroupbox('Auto Shoot / Throw / Botoes')
+    local CombatRight = Tabs.Combat:AddRightGroupbox('Auto / Hitbox / Botoes')
 
     CombatRight:AddToggle('AutoShoot', {
         Text = 'Auto Shoot (Sheriff)',
@@ -573,6 +835,39 @@ local function main()
         Rounding = 0,
         Suffix = ' studs',
         Callback = function(v) throwRange = v end,
+    })
+
+    CombatRight:AddToggle('HitboxExpander', {
+        Text = 'Hitbox Expander',
+        Default = false,
+        Tooltip = 'Aumenta o hitbox dos inimigos',
+        Callback = function(v)
+            hitboxOn = v
+            log("INFO", "Hitbox: " .. (v and "ON" or "OFF"))
+            if v then
+                task.spawn(function()
+                    while running and hitboxOn do
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if p ~= lp then applyHitbox(p) end
+                        end
+                        task.wait(0.1)
+                    end
+                end)
+            else
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= lp then resetHitbox(p) end
+                end
+            end
+        end,
+    })
+
+    CombatRight:AddSlider('HitboxSize', {
+        Text = 'Hitbox Size',
+        Default = 5,
+        Min = 2,
+        Max = 15,
+        Rounding = 0,
+        Callback = function(v) hitboxSize = v end,
     })
 
     CombatRight:AddButton({
@@ -607,43 +902,78 @@ local function main()
         end,
     })
 
-    -- Detectores de input
-    local isShooting = false
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-           or input.UserInputType == Enum.UserInputType.Touch then
-            isShooting = true
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input, gameProcessed)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-           or input.UserInputType == Enum.UserInputType.Touch then
-            isShooting = false
-        end
-    end)
-
-    -- Aimbot loop
+    -- ============================================================
+    -- LOOP DO AIMBOT v6 (MOBILE-SAFE)
+    -- ============================================================
+    local aimAcc = 0
     RunService.RenderStepped:Connect(function()
+        aimButton.Visible = aimbotOn
+
         if not running or not aimbotOn then return end
         if not isWeaponEquipped() then return end
-        if not isShooting then return end
+
+        -- Mobile: só ativa enquanto segura o botão AIM
+        if IS_MOBILE and not isAiming then return end
+        -- PC: precisa estar atirando
+        if not IS_MOBILE and not isShooting then return end
+
+        aimAcc = aimAcc + (1 / 60)
+        if aimAcc < 0.016 then return end
+        aimAcc = 0
 
         if not camera then camera = Workspace.CurrentCamera end
         if not camera then return end
 
-        local target = pickAimbotTarget()
-        if not target then return end
+        updateFOVCircle()
 
+        local targetHRP = pickAimbotTarget()
+        if not targetHRP then return end
+
+        -- Wall Check (Raycast moderno)
         if aimbotWallCheck then
-            local ray = Ray.new(camera.CFrame.Position, (target.Position - camera.CFrame.Position).Unit * (target.Position - camera.CFrame.Position).Magnitude)
-            local hit = Workspace:FindPartOnRay(ray, lp.Character)
-            if hit and not hit:IsDescendantOf(target.Parent) then return end
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = { lp.Character, camera }
+            local ray = Workspace:Raycast(camera.CFrame.Position,
+                (targetHRP.Position - camera.CFrame.Position), params)
+            if ray and not ray.Instance:IsDescendantOf(targetHRP.Parent) then return end
         end
 
-        local targetHead = target.Parent and target.Parent:FindFirstChild("Head")
-        local aimPos = targetHead and targetHead.Position or target.Position
-        camera.CFrame = CFrame.new(camera.CFrame.Position, aimPos)
+        -- Pega posição com predição
+        local targetHead = targetHRP.Parent and targetHRP.Parent:FindFirstChild("Head")
+        local aimPos = targetHead and targetHead.Position or targetHRP.Position
+        if aimbotPrediction > 0 then
+            local part = targetHRP.Parent:FindFirstChild(aimbotTargetPart) or targetHRP
+            aimPos = predictPosition(part)
+        end
+
+        -- 1. Move a câmera com smoothness
+        local goal = CFrame.new(camera.CFrame.Position, aimPos)
+        if aimbotSmooth >= 0.99 then
+            camera.CFrame = goal
+        else
+            camera.CFrame = camera.CFrame:Lerp(goal, aimbotSmooth)
+        end
+
+        -- 2. Mobile: simula toque virtual na tela
+        local screenPos, onScreen = camera:WorldToViewportPoint(aimPos)
+        if onScreen and IS_MOBILE then
+            pcall(function()
+                VIM:SendTouchEvent(1, Enum.UserInputState.Begin, screenPos.X, screenPos.Y, {})
+                task.wait(0.03)
+                VIM:SendTouchEvent(1, Enum.UserInputState.End, screenPos.X, screenPos.Y, {})
+            end)
+        end
+
+        -- 3. Ativa a arma (fallback)
+        local tool = getEquippedTool()
+        if tool then
+            local now = os.clock()
+            if now - (getgenv()._dfLastAct or 0) > 0.15 then
+                getgenv()._dfLastAct = now
+                pcall(function() tool:Activate() end)
+            end
+        end
     end)
 
     -- Silent Aim Knife loop
@@ -768,6 +1098,7 @@ local function main()
             end)
             esp[p] = nil
         end
+        removeESPDrawings(p)
     end
 
     local function buildESP(hrp, color, text)
@@ -821,6 +1152,8 @@ local function main()
                         local dist = myRoot and (myRoot.Position - hrp.Position).Magnitude or 0
                         e.label.Text = string.format("%s (%s) [%dm]", p.DisplayName, role, math.floor(dist))
                     end
+                    if espBoxOn then updateBoxESP(hrp, ROLE_COLORS[role] or Color3.new(1,1,1)) end
+                    if espTracerOn then updateTracer(hrp, ROLE_COLORS[role] or Color3.new(1,1,1)) end
                 else
                     removeESP(p)
                 end
@@ -832,7 +1165,7 @@ local function main()
         if not running then return end
         local acc = (getgenv and getgenv()._dfAcc) or 0
         acc = acc + dt
-        if acc >= 0.1 then acc = 0; updateESP() end
+        if acc >= 0.2 then acc = 0; updateESP() end
         if getgenv then getgenv()._dfAcc = acc end
     end)
 
@@ -863,6 +1196,20 @@ local function main()
             espSheriffOn = v
             log("INFO", "ESP Sheriff: " .. (v and "ON" or "OFF"))
         end,
+    })
+
+    VisualLeft:AddToggle('ESPBox', {
+        Text = 'Box ESP',
+        Default = false,
+        Tooltip = 'Caixa 2D ao redor do alvo',
+        Callback = function(v) espBoxOn = v end,
+    })
+
+    VisualLeft:AddToggle('ESPTracer', {
+        Text = 'Tracer Lines',
+        Default = false,
+        Tooltip = 'Linha da sua tela ate o alvo',
+        Callback = function(v) espTracerOn = v end,
     })
 
     VisualLeft:AddToggle('ESPGun', {
@@ -1256,13 +1603,16 @@ local function main()
     end)
 
     -- ============================================================
-    -- UI SETTINGS
+    -- UI SETTINGS + CRÉDITOS
     -- ============================================================
     local MenuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
 
     MenuGroup:AddButton('Unload', function()
         log("INFO", "Unload solicitado pelo usuario.")
         running = false
+        aimButton.Visible = false
+        if aimButtonGui then aimButtonGui:Destroy() end
+        if fovCircle then fovCircle:Remove() end
         for p in pairs(esp) do removeESP(p) end
         clearAllGunESP()
         if antiFlingConn then antiFlingConn:Disconnect() end
@@ -1279,7 +1629,6 @@ local function main()
         })
     end)
 
-    -- 🔥 FIX v1.5: Options pode nao estar populado em algumas versoes do Linoria
     safeCall("ToggleKeybind", function()
         if Options and Options.MenuKeybind then
             Library.ToggleKeybind = Options.MenuKeybind
@@ -1289,10 +1638,49 @@ local function main()
     end)
 
     MenuGroup:AddButton('Ver Logs no Console', function()
-        print("========== DEEPFIELD LOGS ==========")
+        print("========== DEEPFIELD v6 LOGS ==========")
         for _, l in ipairs(LOGS) do print(l) end
-        print("=====================================")
+        print("=======================================")
         Library:Notify("Logs impressos no F9!", 4)
+    end)
+
+    -- ============================================================
+    -- CRÉDITOS E REDES SOCIAIS
+    -- ============================================================
+    local CreditsGroup = Tabs['UI Settings']:AddRightGroupbox('Créditos')
+
+    CreditsGroup:AddLabel('━━━━━━━━━━━━━━━━━━━━━━━')
+    CreditsGroup:AddLabel('DeepField v6')
+    CreditsGroup:AddLabel('Criado por: Bak454')
+    CreditsGroup:AddLabel('━━━━━━━━━━━━━━━━━━━━━━━')
+
+    CreditsGroup:AddButton('🌐 Abrir Redes Sociais', function()
+        local links = "TikTok: https://www.tiktok.com/@bak454_seilaaqui\n"
+                   .. "YouTube: https://youtube.com/@bak454_seilaaqui"
+        if setclipboard then setclipboard(links) end
+        Library:Notify("Links copiados! Siga o Bak454 🚀", 6)
+    end)
+
+    CreditsGroup:AddButton('📱 TikTok (copiar link)', function()
+        if setclipboard then
+            setclipboard("https://www.tiktok.com/@bak454_seilaaqui")
+            Library:Notify("TikTok copiado! Cole no navegador", 4)
+        end
+    end)
+
+    CreditsGroup:AddButton('▶️ YouTube (copiar link)', function()
+        if setclipboard then
+            setclipboard("https://youtube.com/@bak454_seilaaqui")
+            Library:Notify("YouTube copiado! Cole no navegador", 4)
+        end
+    end)
+
+    CreditsGroup:AddButton('📋 Copiar Todos os Links', function()
+        local all = "TikTok: https://www.tiktok.com/@bak454_seilaaqui\n"
+                 .. "YouTube: https://youtube.com/@bak454_seilaaqui\n"
+                 .. "DeepField v6 - Criado por Bak454"
+        if setclipboard then setclipboard(all) end
+        Library:Notify("Links copiados! 🚀", 6)
     end)
 
     safeCall("ThemeManagerSetup", function()
@@ -1308,7 +1696,7 @@ local function main()
     end)
 
     -- ============================================================
-    -- NOTIFICACOES
+    -- NOTIFICAÇÕES
     -- ============================================================
     local function sendNotification(title, text, duration)
         duration = duration or 8
@@ -1324,14 +1712,14 @@ local function main()
     end
 
     task.wait(1)
-    sendNotification("DeepField:Linoria v1.5", "Beta — espere por bugs", 8)
+    sendNotification("DeepField v6", "Mobile Aim Edition | by Bak454", 8)
     task.wait(1)
-    sendNotification("Criador: Bak454", "Reporte bugs se encontrar", 8)
+    sendNotification("Siga @bak454_seilaaqui", "TikTok e YouTube", 8)
     task.wait(1)
-    sendNotification("Debug ativo", "Use 'Ver Logs' no menu para ver logs", 8)
+    sendNotification("Debug ativo", "Use 'Ver Logs' no menu", 8)
 
-    log("INFO", "=== DeepField v1.5 carregado com sucesso ===")
-    log("INFO", "Total de logs disponiveis: " .. #LOGS)
+    log("INFO", "=== DeepField v6 carregado com sucesso ===")
+    log("INFO", "Criado por Bak454 | @bak454_seilaaqui")
 end
 
 -- ================================================================
